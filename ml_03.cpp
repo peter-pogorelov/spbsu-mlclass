@@ -9,27 +9,27 @@
 
 struct similarity_record {
 	size_t from, to;
-	float value;
+	double value;
 };
 
 similarity_record extract_ids(std::string line, bool has_similarity=false)
 {
-	similarity_record record{0, 0, -1.};
+	similarity_record record{0, 0, 1.};
 
 	std::stringstream ss;
 	ss << line;
 
-	ss >> line;
-	std::stringstream(line) >> record.from;
-	ss >> line;
-	std::stringstream(line) >> record.to;
-	
-	if (has_similarity) {
-		ss >> line;
-		std::stringstream(line) >> record.value;
-	}
+ss >> line;
+std::stringstream(line) >> record.from;
+ss >> line;
+std::stringstream(line) >> record.to;
 
-	return record;
+if (has_similarity) {
+	ss >> line;
+	std::stringstream(line) >> record.value;
+}
+
+return record;
 }
 
 void cache_exemplars(const char* file_name, const std::vector<size_t>& data) {
@@ -64,8 +64,8 @@ struct CEdgeAP {
 	int from, to;
 	float s, a, r;
 
-	CEdgeAP(int from, int to): 
-		from(from), to(to){
+	CEdgeAP(int from, int to) :
+		from(from), to(to) {
 		this->a = this->r = this->s = 0;
 	}
 };
@@ -80,23 +80,23 @@ class CGraphAP {
 	std::vector<size_t> exemplars;
 	size_t i_matrixSize;
 
-	std::default_random_engine generator;
+	std::mt19937 generator;
 	std::normal_distribution<float> norm_distr;
 private:
 	CEdgeAP* make_edge(int from, int to, float s = -1) {
 		CEdgeAP* edge = new CEdgeAP(from, to);
-		edge->s = s + this->next_random() / 1e-6;
+		edge->s = s + this->next_random() * 1e-3f;
 		return edge;
 	}
 
 	CEdgeAP* make_edge_pref(int node_id) {
 		CEdgeAP* edge = new CEdgeAP(node_id, node_id);
-		edge->s = this->next_random() / 1e-6;
+		edge->s = this->next_random() * 1e-3f;
 		return edge;
 	}
 
 	inline float next_random() {
-		return this->norm_distr(this->generator) / 1e-3f;
+		return this->norm_distr(this->generator);
 	}
 
 	inline void append_record(CEdgeAP* edge) {
@@ -112,7 +112,22 @@ private:
 
 public:
 	CGraphAP() {
-		this->norm_distr = std::normal_distribution<float>(0., 1.0);
+		this->norm_distr = std::normal_distribution<float>(0, 1.0);
+	}
+
+	~CGraphAP() {
+		for (size_t i = 0; i < this->i_matrixSize; ++i)
+		{
+			for (size_t j = 0; j < this->pp_inputEdges[i]->size(); ++j) {
+				delete this->pp_inputEdges[i]->at(j);
+			}
+
+			delete this->pp_inputEdges[i];
+			delete this->pp_outputEdges[i];
+		}
+
+		delete[] this->pp_inputEdges;
+		delete[] this->pp_outputEdges;
 	}
 
 	void read_from_file(const char* fname, size_t n_unique, bool has_similarity=false) {
@@ -215,7 +230,7 @@ class CAffinityPropagation {
 			auto& p_edgesRow = this->p_graph->pp_inputEdges[i];
 			float cumsum = 0;
 
-			for (size_t j = 0; j < p_edgesRow->size()-1; ++j)
+			for (size_t j = 0; j < p_edgesRow->size() - 1; ++j)
 				cumsum += std::max<float>(0., p_edgesRow->at(j)->r);
 
 			// self reference is at the end of vector
@@ -239,11 +254,13 @@ class CAffinityPropagation {
 	size_t update_exemplars() {
 		size_t changes_count = 0;
 
+		auto& exemplars = this->p_graph->exemplars;
+
 		for (size_t i = 0; i < p_graph->i_matrixSize; ++i) {
 			auto& p_edgesRow = this->p_graph->pp_outputEdges[i];
 
 			float max_value = -std::numeric_limits<float>::infinity();
-			size_t max_index = -1;
+			size_t max_index = std::numeric_limits<size_t>::infinity();
 
 			for (size_t j = 0; j < p_edgesRow->size(); ++j) {
 				auto& edge = p_edgesRow->at(j);
@@ -254,8 +271,6 @@ class CAffinityPropagation {
 					max_index = p_edgesRow->at(j)->to;
 				}
 			}
-
-			auto& exemplars = this->p_graph->exemplars;
 
 			if (exemplars[i] != max_index) {
 				changes_count++;
@@ -300,7 +315,7 @@ public:
 
 	std::vector<std::vector<int>> get_top_candidates(int n_candidates) {
 		std::vector<std::vector<int>> result;
-
+		
 		for (size_t i = 0; i < p_graph->i_matrixSize; ++i) {
 			auto& p_edgesRow = this->p_graph->pp_outputEdges[i];
 
@@ -330,21 +345,23 @@ public:
 	}
 };
 
-void main() {
+int main() {
 	const size_t total_nodes = 196591;
-	const size_t iterations = 500;
+	const size_t iterations = 5000;
 
-	auto& graph = CGraphAP();
-	auto& affinity_propagation = CAffinityPropagation(.6, iterations);
+	auto&& graph = CGraphAP();
+	auto&& affinity_propagation = CAffinityPropagation(.80, iterations);
 
-	//graph.read_from_file("C:/Users/Petr/JUPYTER/Gowalla/Gowalla_edges.txt", total_nodes);
-	graph.read_from_file("C:/Users/Petr/JUPYTER/Gowalla/synth.txt", 100, true);
+	graph.read_from_file("C:/Users/Petr/JUPYTER/Gowalla/Gowalla_edges.txt", total_nodes);
+	//graph.read_from_file("C:/Users/Petr/JUPYTER/Gowalla/synth.txt", 100, true);
 	
-	auto& exemplars = affinity_propagation.fit_predict(graph);
+	auto&& exemplars = affinity_propagation.fit_predict(graph);
 	//auto& predictions = affinity_propagation.get_top_candidates(10);
 	
 
 	cache_exemplars("C:/Users/Petr/JUPYTER/Gowalla/exemplars.txt", exemplars);
 	//cache_top_results("C:/Users/Petr/JUPYTER/Gowalla/exemplars.txt", predictions);
 	std::getchar();
+
+	return 0;
 }
