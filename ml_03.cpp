@@ -91,7 +91,7 @@ private:
 
 	CEdgeAP* make_edge_pref(int node_id) {
 		CEdgeAP* edge = new CEdgeAP(node_id, node_id);
-		edge->s = -120;
+		edge->s = this->next_random() / 1e-6;
 		return edge;
 	}
 
