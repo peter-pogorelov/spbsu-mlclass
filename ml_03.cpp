@@ -33,7 +33,7 @@ similarity_record extract_ids(std::string line, bool has_similarity = false)
 	return record;
 }
 
-void cache_exemplars(const char* file_name, const std::vector<size_t>& data) {
+void cache_vector(const char* file_name, const std::vector<size_t>& data) {
 	std::ofstream write_stream;
 	write_stream.open(file_name);
 
@@ -98,7 +98,8 @@ private:
 		// смотреть вероятность от числа связей (корень от степени вершины)
 		//edge->s = 0.1;// + this->next_random() * 1e-3;
 
-		edge->s = std::log(this->outputNodesCounts[node_id] + 1) + this->next_random() * 1e-3;
+		//edge->s = std::log(this->outputNodesCounts[node_id] + 1);// + this->next_random();
+		edge->s = -std::log(1. - static_cast<double>(this->outputNodesCounts[node_id]) / this->outputNodesCounts.size());
 		return edge;
 	}
 
@@ -119,7 +120,7 @@ private:
 
 public:
 	CGraphAP() {
-		this->norm_distr = std::normal_distribution<double>(0, 1.0);
+		this->norm_distr = std::normal_distribution<double>(5, 1.0);
 	}
 
 	~CGraphAP() {
@@ -163,6 +164,7 @@ public:
 				similarity_record extracted = extract_ids(line, has_similarity);
 				this->append_record(this->make_edge(extracted.from, extracted.to, extracted.value));
 
+				//this->outputNodesCounts[extracted.to]++;
 				this->outputNodesCounts[extracted.from]++;
 			}
 
@@ -179,9 +181,13 @@ class CAffinityPropagation {
 	double i_damping;
 	size_t i_maxIter;
 	size_t i_convergenceIter;
+	bool first_iteration = true;
 
 	inline void update_with_damping(double &_old, double _new) {
-		_old = this->i_damping * _old + (1.f - this->i_damping) * (_new);
+		if (!this->first_iteration)
+			_old = this->i_damping * _old + (1.f - this->i_damping) * (_new);
+		else
+			_old = _new;
 	}
 
 	size_t get_unique_exemplars() {
@@ -302,6 +308,8 @@ public:
 
 		size_t cummulated_changes = 0;
 		std::deque<size_t> convergence_queue;
+
+
 		for (size_t i = 1; i <= this->i_maxIter; ++i) {
 			this->update_responsibility();
 			this->update_availability();
@@ -327,14 +335,14 @@ public:
 				cummulated_changes = 0;
 			}
 
-			//if (changes_count == 0) {
-			//    std::cout << "execution interrupted at " << i << " due to convergence" << std::endl;
-			//    std::cout << "total number of exemplars: " << this->get_unique_exemplars() << std::endl;
-			//    break;
-			//}
+			this->first_iteration = false;
 		}
 
 		return this->p_graph->exemplars;
+	}
+
+	std::vector<size_t> get_outputs_per_node() {
+		return this->p_graph->outputNodesCounts;
 	}
 
 	std::vector<std::vector<int>> get_top_candidates(int n_candidates) {
@@ -371,10 +379,10 @@ public:
 
 int main() {
 	const size_t total_nodes = 196591;
-	const size_t iterations = 5000;
+	const size_t iterations = 500;
 
 	auto&& graph = CGraphAP();
-	auto&& affinity_propagation = CAffinityPropagation(.80, iterations);
+	auto&& affinity_propagation = CAffinityPropagation(.5, iterations, 10);
 
 	graph.read_from_file("C:/Users/Petr/JUPYTER/Gowalla/Gowalla_edges.txt", total_nodes);
 	//graph.read_from_file("C:/Users/Petr/JUPYTER/Gowalla/synth.txt", 100, true);
@@ -383,7 +391,8 @@ int main() {
 	//auto& predictions = affinity_propagation.get_top_candidates(10);
 
 
-	cache_exemplars("C:/Users/Petr/JUPYTER/Gowalla/exemplars.txt", exemplars);
+	cache_vector("C:/Users/Petr/JUPYTER/Gowalla/exemplars.txt", exemplars);
+	cache_vector("C:/Users/Petr/JUPYTER/Gowalla/nodes_outputs.txt", affinity_propagation.get_outputs_per_node());
 	//cache_top_results("C:/Users/Petr/JUPYTER/Gowalla/exemplars.txt", predictions);
 	std::getchar();
 
